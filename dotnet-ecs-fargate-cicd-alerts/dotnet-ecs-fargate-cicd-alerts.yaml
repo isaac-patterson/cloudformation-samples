@@ -58,7 +58,7 @@ Resources:
               awslogs-group: !Ref 'ECSLogGroup'
               awslogs-region: !Ref AWS::Region
               awslogs-stream-prefix: !Sub ${StackName}-logs
-          Image: !Sub ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${StackName}-ecr:latest
+          Image: !Sub ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/<YOUR_ECR_REPO_NAME>:latest
           Cpu: 256
           Memory: 256
           PortMappings:
@@ -229,7 +229,7 @@ Resources:
     Type: AWS::ECR::Repository
     DeletionPolicy: Retain
     Properties: 
-      RepositoryName: !Sub ${StackName}-ecr
+      RepositoryName: <YOUR_ECR_REPO_NAME
       RepositoryPolicyText: 
         Version: "2012-10-17"
         Statement: 
@@ -260,7 +260,7 @@ Resources:
         EnvironmentVariables:
             - Name: REPOSITORY_URI
               Type: PLAINTEXT
-              Value: !Sub ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${StackName}-ecr
+              Value: !Sub ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/<YOUR_ECR_REPO_NAME
             - Name: AWS_DEFAULT_REGION
               Type: PLAINTEXT
               Value: !Ref AWS::Region
