@@ -1,0 +1,431 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: .NET WebApi AWS Fargate Task 
+  
+Parameters:
+  StackName:
+    Description: Service stack for net-core-task
+    Type: String
+  Stage:
+    Type: String
+  ApiVPC:
+    Type: String
+  ECSCluster:
+    Type: String
+  ECSSecurityGroup:
+    Type: String
+  PrivateSubnet1:
+    Type: String
+  PrivateSubnet2:
+    Type: String
+  ExternalUrl:
+    Type: String
+  HTTPSListener:
+    Type: String
+  ContainerPort:
+    Type: String
+  ServiceName:
+    Type: String
+  DllFile:
+    Type: String
+  DesiredTaskCount:
+    Type: String
+  PathPattern: 
+    Type: String
+  ListnerRulePriority:
+    Type: String
+  SNSServiceCountAlarmTopic:
+    Type: String
+
+Resources:
+  #Service task definition
+  ECSTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Sub ${StackName}
+      NetworkMode: awsvpc
+      ExecutionRoleArn: !Ref ECSTaskExecutionRole
+      TaskRoleArn: !Ref 'ECSRole'
+      Cpu: 256
+      Memory: 512
+      RequiresCompatibilities:
+        - FARGATE
+      ContainerDefinitions:
+        -
+          Name: !Ref ServiceName
+          LogConfiguration:
+            LogDriver:  awslogs
+            Options:
+              awslogs-group: !Ref 'ECSLogGroup'
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: !Sub ${StackName}-logs
+          Image: !Sub ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${StackName}-ecr:latest
+          Cpu: 256
+          Memory: 256
+          PortMappings:
+            - ContainerPort: !Ref ContainerPort
+              Protocol: tcp
+          Command:
+            - "dotnet"
+            - !Ref DllFile                   
+
+  #Defines long running tasks of the same task definition
+  ECSService:
+    Type: AWS::ECS::Service
+    DependsOn: 
+      - LoadBalancerRule
+    Properties:
+      ServiceName: !Sub ${StackName}-${ServiceName}-service
+      Cluster: !Ref ECSCluster
+      LaunchType: FARGATE
+      DesiredCount: !Ref DesiredTaskCount 
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: ENABLED
+          SecurityGroups:
+            - !Ref ECSSecurityGroup
+          Subnets:
+            - !Ref PrivateSubnet1
+            - !Ref PrivateSubnet2
+
+      TaskDefinition: !Ref ECSTaskDefinition
+      LoadBalancers:
+        - ContainerName: !Ref ServiceName
+          ContainerPort: !Ref ContainerPort
+          TargetGroupArn: !Ref TargetGroup
+
+  #Target group distributes traffic from the PLB to the fargate instance
+  TargetGroup:
+      Type: "AWS::ElasticLoadBalancingV2::TargetGroup"
+      Properties:
+          HealthCheckIntervalSeconds: 10
+          HealthCheckPath: "/api/values"
+          HealthCheckPort: "traffic-port"
+          HealthCheckProtocol: "HTTP"
+          HealthCheckTimeoutSeconds: 5
+          HealthyThresholdCount: 5
+          UnhealthyThresholdCount: 2
+          Matcher: #checks for 200 OK for healthcheck
+              HttpCode: "200"
+          Port: !Ref ContainerPort
+          Protocol: "HTTP"
+          TargetType: ip
+          VpcId: !Ref ApiVPC
+          Name: !Sub ${ServiceName}-tgt-grp
+  
+  #Adds listener to the PLB
+  #Traffic is fowarded to the TargetGroup if the path matches
+  #TO DO - add an action to the listner rule in order to authenticate users
+  #https://docs.aws.amazon.com/elasticloadbalancing/latest/application/listener-authenticate-users.html
+  LoadBalancerRule:
+      Type: "AWS::ElasticLoadBalancingV2::ListenerRule"
+      Properties:
+        Priority: !Ref ListnerRulePriority
+        ListenerArn: !Ref HTTPSListener
+        Conditions: 
+          - 
+            Field: "path-pattern"
+            Values: 
+              - !Ref PathPattern
+        Actions: 
+          - 
+            Type: "forward"
+            TargetGroupArn: !Ref TargetGroup
+        
+
+  #ECS roles & log group
+  ECSRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub ${StackName}-ecs-role
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonRDSFullAccess 
+        - arn:aws:iam::aws:policy/AmazonSSMFullAccess 
+        - arn:aws:iam::aws:policy/AmazonECS_FullAccess 
+        - arn:aws:iam::aws:policy/service-role/AmazonEC2ContainerServiceforEC2Role  
+      AssumeRolePolicyDocument:
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service: [ecs.amazonaws.com]
+          Action: ['sts:AssumeRole']
+        - Effect: Allow
+          Principal:
+            Service: [ecs-tasks.amazonaws.com]
+          Action: ['sts:AssumeRole']          
+      Path: /
+      Policies:
+        - PolicyName: ecs-service
+          PolicyDocument:
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'ec2:AttachNetworkInterface'
+                  - 'ec2:CreateNetworkInterface'
+                  - 'ec2:CreateNetworkInterfacePermission'
+                  - 'ec2:DeleteNetworkInterface'
+                  - 'ec2:DeleteNetworkInterfacePermission'
+                  - 'ec2:Describe*'
+                  - 'ec2:DetachNetworkInterface'
+                  - 'elasticloadbalancing:DeregisterInstancesFromLoadBalancer'
+                  - 'elasticloadbalancing:DeregisterTargets'
+                  - 'elasticloadbalancing:Describe*'
+                  - 'elasticloadbalancing:RegisterInstancesWithLoadBalancer'
+                  - 'elasticloadbalancing:RegisterTargets'
+                Resource: '*'
+  
+  ECSTaskExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub ${StackName}-taskexec-role
+      AssumeRolePolicyDocument:
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service: [ecs-tasks.amazonaws.com]
+          Action: ['sts:AssumeRole']
+      Path: /
+      Policies:
+        - PolicyName: AmazonECSTaskExecutionRolePolicy
+          PolicyDocument:
+            Statement:
+            - Effect: Allow
+              Action:
+                - 'ecr:GetAuthorizationToken'
+                - 'ecr:BatchCheckLayerAvailability'
+                - 'ecr:GetDownloadUrlForLayer'
+                - 'ecr:BatchGetImage'
+                - 'logs:CreateLogStream'
+                - 'logs:PutLogEvents'
+              Resource: '*'
+  
+  ECSLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties: 
+      LogGroupName: !Sub ${StackName}-awslogs
+      RetentionInDays: 30
+
+  #Alarm which triggers slack message
+  ServiceCountAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+        MetricName: CPUUtilization
+        Namespace: AWS/ECS
+        Statistic: SampleCount
+        Period: 60
+        EvaluationPeriods: 1
+        Threshold: !Ref DesiredTaskCount
+        ComparisonOperator: LessThanThreshold
+        TreatMissingData: breaching
+        Dimensions:
+          - Name: ClusterName
+            Value: !Ref ECSCluster
+          - Name: ServiceName
+            Value: !Sub ${StackName}-${ServiceName}-service
+        AlarmActions:
+          - !Ref SNSServiceCountAlarmTopic
+  
+  #Deployment Pipeline
+  ECRRepository: 
+    Type: AWS::ECR::Repository
+    DeletionPolicy: Retain
+    Properties: 
+      RepositoryName: !Sub ${StackName}-ecr
+      RepositoryPolicyText: 
+        Version: "2012-10-17"
+        Statement: 
+          - Effect: Allow
+            Principal:
+              Service: codebuild.amazonaws.com
+            Action: 'sts:AssumeRole' 
+
+  ArtifactBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    Properties:
+      BucketName: !Sub ${StackName}-artifacts
+
+  CodeBuildProject:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Name: !Sub ${StackName}-${ServiceName}-build
+      Description: !Sub ${ServiceName} Api application codebuild project.
+      ServiceRole: !GetAtt CodeBuildRole.Arn
+      Artifacts:
+        Type: CODEPIPELINE
+      Environment:
+        Type: LINUX_CONTAINER
+        ComputeType: BUILD_GENERAL1_SMALL
+        Image: aws/codebuild/standard:5.0
+        PrivilegedMode: true
+        EnvironmentVariables:
+            - Name: REPOSITORY_URI
+              Type: PLAINTEXT
+              Value: !Sub ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${StackName}-ecr
+            - Name: AWS_DEFAULT_REGION
+              Type: PLAINTEXT
+              Value: !Ref AWS::Region
+      Source:
+        Type: CODEPIPELINE 
+        BuildSpec: config/buildspec.yml
+
+  CodeBuildRole:
+    Type: AWS::IAM::Role
+    Properties:
+      Path: /
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: codebuild.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: root
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Resource: "*"
+                Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                  - ecr:GetAuthorizationToken
+              - Resource: !Sub arn:aws:s3:::${ArtifactBucket}/*
+                Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                  - s3:GetObjectVersion
+              - Resource: !Sub arn:aws:ecr:${AWS::Region}:${AWS::AccountId}:repository/${ECRRepository}
+                Effect: Allow
+                Action:
+                  - ecr:GetDownloadUrlForLayer
+                  - ecr:BatchGetImage
+                  - ecr:BatchCheckLayerAvailability
+                  - ecr:PutImage
+                  - ecr:InitiateLayerUpload
+                  - ecr:UploadLayerPart
+                  - ecr:CompleteLayerUpload
+
+  CodePipelineServiceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      Path: /
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: codepipeline.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: root
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Resource:
+                  - !Sub arn:aws:s3:::${ArtifactBucket}/*
+                Effect: Allow
+                Action:
+                  - s3:PutObject
+                  - s3:GetObject
+                  - s3:GetObjectVersion
+                  - s3:GetBucketVersioning
+              - Resource: "*"
+                Effect: Allow
+                Action:
+                  - ecs:DescribeServices
+                  - ecs:DescribeTaskDefinition
+                  - ecs:DescribeTasks
+                  - ecs:ListTasks
+                  - ecs:RegisterTaskDefinition
+                  - ecs:UpdateService
+                  - codebuild:StartBuild
+                  - codebuild:BatchGetBuilds
+                  - iam:PassRole
+
+  Pipeline:
+    Type: AWS::CodePipeline::Pipeline
+    Properties:
+      RoleArn: !GetAtt CodePipelineServiceRole.Arn
+      ArtifactStore:
+        Type: S3
+        Location: !Ref ArtifactBucket
+      Stages:
+        - Name: Source
+          Actions:
+            - Name: App
+              ActionTypeId:
+                Category: Source
+                Owner: ThirdParty
+                Version: 1
+                Provider: GitHub
+              Configuration:
+                Owner: veni-nz
+                Repo: !Ref ServiceName
+                Branch: master
+                OAuthToken: '{{resolve:secretsmanager:GITHUB_ACCESS:SecretString:GITHUB_ACCESS_TOKEN}}'
+              OutputArtifacts:
+                - Name: dotnetApp
+              RunOrder: 1
+        - Name: Build
+          Actions:
+            - Name: Build
+              ActionTypeId:
+                Category: Build
+                Owner: AWS
+                Version: 1
+                Provider: CodeBuild
+              Configuration:
+                ProjectName: !Ref CodeBuildProject
+              InputArtifacts:
+                - Name: dotnetApp
+              OutputArtifacts:
+                - Name: BuildOutput
+
+              RunOrder: 1
+        - Name: Deploy
+          Actions:
+            - Name: Deploy
+              ActionTypeId:
+                Category: Deploy
+                Owner: AWS
+                Version: 1
+                Provider: ECS
+              Configuration:
+                ClusterName: !Ref ECSCluster
+                ServiceName: !Sub ${StackName}-${ServiceName}-service
+                FileName: images.json
+              InputArtifacts:
+                - Name: BuildOutput
+              RunOrder: 1
+
+Outputs:
+  HealthCheckUrl:
+    Description: Healthcheck URL
+    Value: 
+       !Join ['', [!Ref ExternalUrl, '/api/values']]
+  WebApiUrl:
+    Description: WebApi URL
+    Value:
+      !Join ['', [!Ref ExternalUrl, '/api/']]
+  CodeBuildName:
+    Description: The name of the CodeBuild.
+    Value: !Ref 'CodeBuildProject'    
+  ECSTaskExecutionRole:
+    Description: The ARN of the ECS role
+    Value: !GetAtt 'ECSTaskExecutionRole.Arn'
+    Export:
+      Name: !Join [ ':', [ !Ref 'AWS::StackName', 'ECSTaskExecutionRole' ] ]      
+  ECSTaskDefinition:
+    Description: TaskDefinition for the ECS Cluster
+    Value: !Ref 'ECSTaskDefinition'
+    Export:
+      Name: !Join [ ':', [ !Ref 'AWS::StackName', 'ECSTaskDefinition' ] ]
+  ECSRole:
+    Description: The ARN of the ECS role
+    Value: !GetAtt 'ECSRole.Arn'
+    Export:
+      Name: !Join [ ':', [ !Ref 'AWS::StackName', 'ECSRole' ] ]
+                
