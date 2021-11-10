@@ -1,0 +1,22 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Root/Parent stack for test account setup
+
+Parameters:
+  Region:
+    Type: String
+  Environment:
+    Type: String
+  ProjectID:
+    Type: String
+
+Resources:
+  VPCStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: vpc-stack.yaml
+      Parameters:
+        StackName: user-webapp
+        Stage: !Ref Stage
+        Environment: !Ref Environment
+        ProjectID: !Ref ProjectID
+  

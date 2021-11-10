@@ -1,0 +1,23 @@
+containers:
+  aws:
+    image: amazon/aws-cli:2.3.5
+    volumes: 
+      - local: . #copy source code into container
+        container: /code
+    run_as_current_user:
+      enabled: true
+      home_directory: /home/container-user
+
+tasks:
+  aws-deploy:
+    description: deploys stacks to aws
+    group: aws
+    run:
+      container: aws
+      command: aws cloudformation deploy --region $REGION --template-file packaged.yaml --stack-name rootStack --capabilities CAPABILITY_NAMED_IAM --parameter-overrides ENVIRONMENT=$ENVIRONMENT
+      #--capabilities CAPABILITY_NAMED_IAM allows cloudformation to name iam resources
+      environment:
+        ENVIRONMENT: $ENVIRONMENT
+        REGION: $REGION
+        AWS_SESSION_TOKEN: $AWS_SESSION_TOKEN
+

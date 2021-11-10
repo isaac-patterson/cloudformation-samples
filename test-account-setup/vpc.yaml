@@ -1,0 +1,213 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Outer private & public subnet resources for bite
+
+#This section matches a key to a corresponding set of named values (strings, lists)
+Mappings:
+  SubnetConfig:
+    VPC:
+      CIDR: '10.0.0.0/16'
+    PublicOne:
+      CIDR: '10.0.0.0/24'
+    PublicTwo:
+      CIDR: '10.0.1.0/24'
+    PrivateOne:
+      CIDR: '10.0.2.0/24'
+    PrivateTwo:
+      CIDR: '10.0.3.0/24'
+Parameters:
+  StackName:
+    Description: An Application name that will be prefixed to resource names
+    Type: String
+    Default: vpc-stack
+  Stage:
+    Type: String
+  Region:
+    Type: String
+
+Resources:
+  ApiVPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      CidrBlock: 
+        !FindInMap ['SubnetConfig', 'VPC', 'CIDR']
+      Tags:
+        - Key: Name
+          Value: !Ref StackName     
+        - Key: ProjectID
+          Value: Bite api vpc
+
+                  StackName: user-webapp
+        Stage: !Ref Stage
+        Environment: !Ref Environment
+  
+  
+  #A subnet is a public subnet only if it has a Route Table that directs traffic to the Internet Gateway.
+  PublicSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref ApiVPC
+      CidrBlock:
+        !FindInMap ['SubnetConfig', 'PublicOne', 'CIDR']
+      AvailabilityZone: us-east-1a
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub ${StackName} Public Subnet (AZ1)     
+        - Key: Project
+          Value: .Net Core on AWS           
+  PublicSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref ApiVPC
+      CidrBlock:
+        !FindInMap ['SubnetConfig', 'PublicTwo', 'CIDR']
+      AvailabilityZone: us-east-1b
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub ${StackName} Public Subnet (AZ2)   
+        - Key: Project
+          Value: .Net Core on AWS             
+  PrivateSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId:
+        !Ref ApiVPC
+      CidrBlock:
+        !FindInMap ['SubnetConfig', 'PrivateOne', 'CIDR']
+      AvailabilityZone: us-east-1a
+      Tags:
+        - Key: Name
+          Value: !Sub ${StackName} Private Subnet (AZ1)       
+        - Key: Project
+          Value: .Net Core on AWS            
+  PrivateSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId:
+        !Ref ApiVPC
+      CidrBlock:
+        !FindInMap ['SubnetConfig', 'PrivateTwo', 'CIDR']
+      AvailabilityZone: us-east-1b
+      Tags:
+        - Key: Name
+          Value: !Sub ${StackName} Private Subnet (AZ2)       
+        - Key: Project
+          Value: .Net Core on AWS            
+  
+  #An Internet Gateway (IGW) allows resources within your VPC to access the internet, and vice versa. Routing table entry allows a subnet to access the IGW.
+  #If a VPC does not have an Internet Gateway, then the resources in the VPC cannot be accessed from the Internet
+  IGW:
+    DependsOn: ApiVPC
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Sub ${StackName} - Internet Gateway    
+        - Key: Project
+          Value: .Net Core on AWS             
+  
+  VPCGatewayAttachment:
+    DependsOn: IGW
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref ApiVPC
+      InternetGatewayId: !Ref IGW
+
+  PrivateSubnet1RouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref ApiVPC
+      Tags:
+        - Key: Name
+          Value: !Sub ${StackName} Private Route Table 1  
+
+  PrivateSubnet1RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnet1
+      RouteTableId: !Ref PrivateSubnet1RouteTable
+
+  PrivateSubnet2RouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref ApiVPC
+      Tags:
+        - Key: Name
+          Value: !Sub ${StackName} Private Route Table 2
+
+  PrivateSubnet2RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnet2
+      RouteTableId: !Ref PrivateSubnet2RouteTable
+
+  #edge assosiation (connected to internet gateway). Allows incoming traffic to subnet
+  PublicSubnetRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref ApiVPC
+      Tags:
+        - Key: Name
+          Value: !Sub ${StackName} Public Route Table    
+        - Key: Project
+          Value: .Net Core on AWS        
+
+  PublicSubnetRoute:
+    Type: AWS::EC2::Route
+    DependsOn: VPCGatewayAttachment
+    Properties:
+      RouteTableId: !Ref PublicSubnetRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref IGW
+
+  PublicSubnet1RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet1
+      RouteTableId: !Ref PublicSubnetRouteTable
+
+  PublicSubnet2RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet2
+      RouteTableId: !Ref PublicSubnetRouteTable
+  
+Outputs:    
+  ApiVPC:
+    Description: The ID of the VPC that this stack is deployed in
+    Value: !Ref 'ApiVPC'
+    Export:
+      Name: !Join [ ':', [ !Ref 'AWS::StackName', 'ApiVPC' ] ]
+  PublicSubnet1:
+    Description: Public subnet one
+    Value: !Ref 'PublicSubnet1'
+    Export:
+      Name: !Join [ ':', [ !Ref 'AWS::StackName', 'PublicSubnet1' ] ]
+  PublicSubnet2:
+    Description: Public subnet two
+    Value: !Ref 'PublicSubnet2'
+    Export:
+      Name: !Join [ ':', [ !Ref 'AWS::StackName', 'PublicSubnet2' ] ]
+  PrivateSubnet1:
+    Description: Private subnet one
+    Value: !Ref 'PrivateSubnet1'
+    Export:
+      Name: !Join [ ':', [ !Ref 'AWS::StackName', 'PrivateSubnet1' ] ]
+  PrivateSubnet2:
+    Description: Private subnet two
+    Value: !Ref 'PrivateSubnet2'
+    Export:
+      Name: !Join [ ':', [ !Ref 'AWS::StackName', 'PrivateSubnet2' ] ]
+  PrivateSubnet1RouteTable:
+    Description: Private subnet routetable one
+    Value: !Ref 'PrivateSubnet1RouteTable'
+    Export:
+      Name: !Join [ ':', [ !Ref 'AWS::StackName', 'PrivateSubnet1RouteTable' ] ]
+  PrivateSubnet2RouteTable:
+    Description: Private subnet routetable one
+    Value: !Ref 'PrivateSubnet2RouteTable'
+    Export:
+      Name: !Join [ ':', [ !Ref 'AWS::StackName', 'PrivateSubnet2RouteTable' ] ]
