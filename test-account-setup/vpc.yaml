@@ -14,14 +14,20 @@ Mappings:
       CIDR: '10.0.2.0/24'
     PrivateTwo:
       CIDR: '10.0.3.0/24'
+
+#TODO: incorporate parameters in stack names
+#TODO: remove us-east-1 with region specific availablilty zones
+#TODO: make sure project id is on every resource
 Parameters:
   StackName:
     Description: An Application name that will be prefixed to resource names
     Type: String
     Default: vpc-stack
-  Stage:
+  Environment:
     Type: String
   Region:
+    Type: String
+  ProjectID: 
     Type: String
 
 Resources:
@@ -36,12 +42,7 @@ Resources:
         - Key: Name
           Value: !Ref StackName     
         - Key: ProjectID
-          Value: Bite api vpc
-
-                  StackName: user-webapp
-        Stage: !Ref Stage
-        Environment: !Ref Environment
-  
+          Value: !Ref ProjectID
   
   #A subnet is a public subnet only if it has a Route Table that directs traffic to the Internet Gateway.
   PublicSubnet1:
@@ -55,8 +56,9 @@ Resources:
       Tags:
         - Key: Name
           Value: !Sub ${StackName} Public Subnet (AZ1)     
-        - Key: Project
-          Value: .Net Core on AWS           
+        - Key: ProjectID
+          Value: !Ref ProjectID   
+
   PublicSubnet2:
     Type: AWS::EC2::Subnet
     Properties:
@@ -68,8 +70,9 @@ Resources:
       Tags:
         - Key: Name
           Value: !Sub ${StackName} Public Subnet (AZ2)   
-        - Key: Project
-          Value: .Net Core on AWS             
+        - Key: ProjectID
+          Value: !Ref ProjectID
+
   PrivateSubnet1:
     Type: AWS::EC2::Subnet
     Properties:
@@ -81,8 +84,9 @@ Resources:
       Tags:
         - Key: Name
           Value: !Sub ${StackName} Private Subnet (AZ1)       
-        - Key: Project
-          Value: .Net Core on AWS            
+        - Key: ProjectID
+          Value: !Ref ProjectID   
+
   PrivateSubnet2:
     Type: AWS::EC2::Subnet
     Properties:
@@ -94,8 +98,8 @@ Resources:
       Tags:
         - Key: Name
           Value: !Sub ${StackName} Private Subnet (AZ2)       
-        - Key: Project
-          Value: .Net Core on AWS            
+        - Key: ProjectID
+          Value: !Ref ProjectID          
   
   #An Internet Gateway (IGW) allows resources within your VPC to access the internet, and vice versa. Routing table entry allows a subnet to access the IGW.
   #If a VPC does not have an Internet Gateway, then the resources in the VPC cannot be accessed from the Internet
@@ -106,8 +110,8 @@ Resources:
       Tags:
         - Key: Name
           Value: !Sub ${StackName} - Internet Gateway    
-        - Key: Project
-          Value: .Net Core on AWS             
+        - Key: ProjectID
+          Value: !Ref ProjectID  
   
   VPCGatewayAttachment:
     DependsOn: IGW
@@ -115,6 +119,9 @@ Resources:
     Properties:
       VpcId: !Ref ApiVPC
       InternetGatewayId: !Ref IGW
+      Tags:
+        - Key: ProjectID
+          Value: !Ref ProjectID   
 
   PrivateSubnet1RouteTable:
     Type: AWS::EC2::RouteTable
@@ -123,6 +130,8 @@ Resources:
       Tags:
         - Key: Name
           Value: !Sub ${StackName} Private Route Table 1  
+        - Key: ProjectID
+          Value: !Ref ProjectID  
 
   PrivateSubnet1RouteTableAssociation:
     Type: AWS::EC2::SubnetRouteTableAssociation
@@ -137,6 +146,8 @@ Resources:
       Tags:
         - Key: Name
           Value: !Sub ${StackName} Private Route Table 2
+        - Key: ProjectID
+          Value: !Ref ProjectID
 
   PrivateSubnet2RouteTableAssociation:
     Type: AWS::EC2::SubnetRouteTableAssociation
@@ -152,8 +163,8 @@ Resources:
       Tags:
         - Key: Name
           Value: !Sub ${StackName} Public Route Table    
-        - Key: Project
-          Value: .Net Core on AWS        
+        - Key: ProjectID
+          Value: !Ref ProjectID     
 
   PublicSubnetRoute:
     Type: AWS::EC2::Route
@@ -162,6 +173,7 @@ Resources:
       RouteTableId: !Ref PublicSubnetRouteTable
       DestinationCidrBlock: 0.0.0.0/0
       GatewayId: !Ref IGW
+      
 
   PublicSubnet1RouteTableAssociation:
     Type: AWS::EC2::SubnetRouteTableAssociation

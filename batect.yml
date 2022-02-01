@@ -1,5 +1,5 @@
-containers:
-  aws:
+containers: 
+  aws: #TODO: Test container
     image: amazon/aws-cli:2.3.5
     volumes: 
       - local: . #copy source code into container
@@ -7,17 +7,19 @@ containers:
     run_as_current_user:
       enabled: true
       home_directory: /home/container-user
+    environment:
+      AWS_ACCESS_KEY_ID: $AWS_ACCESS_KEY_ID
+      AWS_SESSION_TOKEN: $AWS_SESSION_TOKEN
+      AWS_SECRET_ACCESS_KEY: $AWS_SECRET_ACCESS_KEY
+      AWS_SECURITY_TOKEN: $AWS_SECURITY_TOKEN
+      ENVIRONMENT: $ENVIRONMENT
+      REGION: $REGION
 
 tasks:
-  aws-deploy:
+  aws-deploy: #TODO: test task
     description: deploys stacks to aws
     group: aws
     run:
       container: aws
-      command: aws cloudformation deploy --region $REGION --template-file packaged.yaml --stack-name rootStack --capabilities CAPABILITY_NAMED_IAM --parameter-overrides ENVIRONMENT=$ENVIRONMENT
+      command: aws cloudformation deploy --region $REGION --template-file packaged.yaml --stack-name rootStack --capabilities CAPABILITY_NAMED_IAM --parameter-overrides ENVIRONMENT=$ENVIRONMENT PROJECTID=$PROJECTID REGION=$REGION
       #--capabilities CAPABILITY_NAMED_IAM allows cloudformation to name iam resources
-      environment:
-        ENVIRONMENT: $ENVIRONMENT
-        REGION: $REGION
-        AWS_SESSION_TOKEN: $AWS_SESSION_TOKEN
-
